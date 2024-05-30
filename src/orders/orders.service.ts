@@ -130,6 +130,15 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       where: {
         id,
       },
+      include: {
+        OrderItem: {
+          select: {
+            price: true,
+            quantity: true,
+            productId: true
+          }
+        }
+      }
     });
 
     if (!order) {
@@ -138,7 +147,27 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
         status: HttpStatus.NOT_FOUND,
       });
     }
-    return order;
+
+    try {
+
+      const ids = order.OrderItem.map((orderItem) => orderItem.productId);
+
+      const products = await firstValueFrom(
+        this.productClient.send({ cmd: 'validate_product' }, ids),
+      );
+
+      return {
+        ...order,
+        OrderItem: order.OrderItem.map((orderItem) => ({
+          ...orderItem,
+          name: products.find(
+            (product: ProductType) => product.id === orderItem.productId,
+          ).name,
+        })),
+      };
+    } catch (error) {
+      throw new RpcException(error);
+    }
   }
 
   async changeStatus(changeOrderStatusDto: ChangeOrderStatusDto) {
