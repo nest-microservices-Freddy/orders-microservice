@@ -109,14 +109,43 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     const currentPage = orderPaginationDto.page;
     const perPage = orderPaginationDto.limit;
 
-    return {
-      data: await this.order.findMany({
-        skip: (currentPage - 1) * perPage,
-        take: perPage,
-        where: {
-          status: orderPaginationDto.status,
+    const orders = await this.order.findMany({
+      skip: (currentPage - 1) * perPage,
+      take: perPage,
+      where: {
+        status: orderPaginationDto.status,
+      },
+      include: {
+        OrderItem: {
+          select: {
+            price: true,
+            quantity: true,
+            productId: true,
+          },
         },
-      }),
+      },
+    });
+
+    const mapData = orders.map(async (order) => {
+      const ids = order.OrderItem.map((orderItem) => orderItem.productId);
+      const products = await firstValueFrom(
+        this.client.send({ cmd: 'validate_product' }, ids),
+      );
+      return {
+        ...order,
+        OrderItem: order.OrderItem.map((orderItem) => ({
+          ...orderItem,
+          name: products.find(
+            (product: ProductType) => product.id === orderItem.productId,
+          ).name,
+        })),
+      };
+    });
+    const result = await Promise.all(mapData);
+    console.log('result', result);
+
+    return {
+      data: result,
       meta: {
         total: totalPages,
         page: currentPage,
@@ -135,10 +164,10 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
           select: {
             price: true,
             quantity: true,
-            productId: true
-          }
-        }
-      }
+            productId: true,
+          },
+        },
+      },
     });
 
     if (!order) {
@@ -149,7 +178,6 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     }
 
     try {
-
       const ids = order.OrderItem.map((orderItem) => orderItem.productId);
 
       const products = await firstValueFrom(
